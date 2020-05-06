@@ -86,63 +86,67 @@ const generateQuery = (
   crossReferenceKeyList = [], // [`${curParentName}To${curName}Key`]
   curDepth = 1,
 ) => {
-  const field = gqlSchema.getType(curParentType).getFields()[curName];
-  const curTypeName = field.type.inspect().replace(/[[\]!]/g, '');
-  const curType = gqlSchema.getType(curTypeName);
-  let queryStr = '';
-  let childQuery = '';
+  try {
+    const field = gqlSchema.getType(curParentType).getFields()[curName];
+    const curTypeName = field.type.inspect().replace(/[[\]!]/g, '');
+    const curType = gqlSchema.getType(curTypeName);
+    let queryStr = '';
+    let childQuery = '';
 
-  if (curType.getFields) {
-    const crossReferenceKey = `${curParentName}To${curName}Key`;
-    if (crossReferenceKeyList.indexOf(crossReferenceKey) !== -1 || curDepth > depthLimit) return '';
-    crossReferenceKeyList.push(crossReferenceKey);
-    const childKeys = Object.keys(curType.getFields());
-    childQuery = childKeys
-      .filter(fieldName => {
-        /* Exclude deprecated fields */
-        const fieldSchema = gqlSchema.getType(curType).getFields()[fieldName];
-        return includeDeprecatedFields || !fieldSchema.isDeprecated;
-      })
-      .map(cur => generateQuery(cur, curType, curName, argumentsDict, duplicateArgCounts,
-        crossReferenceKeyList, curDepth + 1).queryStr)
-      .filter(cur => cur)
-      .join('\n');
-  }
-
-  if (!(curType.getFields && !childQuery)) {
-    queryStr = `${'    '.repeat(curDepth)}${field.name}`;
-    if (field.args.length > 0) {
-      const dict = getFieldArgsDict(field, duplicateArgCounts, argumentsDict);
-      Object.assign(argumentsDict, dict);
-      queryStr += `(${getArgsToVarsStr(dict)})`;
+    if (curType.getFields) {
+      const crossReferenceKey = `${curParentName}To${curName}Key`;
+      if (crossReferenceKeyList.indexOf(crossReferenceKey) !== -1 || curDepth > depthLimit) return '';
+      crossReferenceKeyList.push(crossReferenceKey);
+      const childKeys = Object.keys(curType.getFields());
+      childQuery = childKeys
+        .filter(fieldName => {
+          /* Exclude deprecated fields */
+          const fieldSchema = gqlSchema.getType(curType).getFields()[fieldName];
+          return includeDeprecatedFields || !fieldSchema.isDeprecated;
+        })
+        .map(cur => generateQuery(cur, curType, curName, argumentsDict, duplicateArgCounts,
+          crossReferenceKeyList, curDepth + 1).queryStr)
+        .filter(cur => cur)
+        .join('\n');
     }
-    if (childQuery) {
-      queryStr += `{\n${childQuery}\n${'    '.repeat(curDepth)}}`;
-    }
-  }
 
-  /* Union types */
-  if (curType.astNode && curType.astNode.kind === 'UnionTypeDefinition') {
-    const types = curType.getTypes();
-    if (types && types.length) {
-      const indent = `${'    '.repeat(curDepth)}`;
-      const fragIndent = `${'    '.repeat(curDepth + 1)}`;
-      queryStr += '{\n';
-
-      for (let i = 0, len = types.length; i < len; i++) {
-        const valueTypeName = types[i];
-        const valueType = gqlSchema.getType(valueTypeName);
-        const unionChildQuery = Object.keys(valueType.getFields())
-          .map(cur => generateQuery(cur, valueType, curName, argumentsDict, duplicateArgCounts,
-            crossReferenceKeyList, curDepth + 2).queryStr)
-          .filter(cur => cur)
-          .join('\n');
-        queryStr += `${fragIndent}... on ${valueTypeName} {\n${unionChildQuery}\n${fragIndent}}\n`;
+    if (!(curType.getFields && !childQuery)) {
+      queryStr = `${'    '.repeat(curDepth)}${field.name}`;
+      if (field.args.length > 0) {
+        const dict = getFieldArgsDict(field, duplicateArgCounts, argumentsDict);
+        Object.assign(argumentsDict, dict);
+        queryStr += `(${getArgsToVarsStr(dict)})`;
       }
-      queryStr += `${indent}}`;
+      if (childQuery) {
+        queryStr += `{\n${childQuery}\n${'    '.repeat(curDepth)}}`;
+      }
     }
+
+    /* Union types */
+    if (curType.astNode && curType.astNode.kind === 'UnionTypeDefinition') {
+      const types = curType.getTypes();
+      if (types && types.length) {
+        const indent = `${'    '.repeat(curDepth)}`;
+        const fragIndent = `${'    '.repeat(curDepth + 1)}`;
+        queryStr += '{\n';
+
+        for (let i = 0, len = types.length; i < len; i++) {
+          const valueTypeName = types[i];
+          const valueType = gqlSchema.getType(valueTypeName);
+          const unionChildQuery = Object.keys(valueType.getFields())
+            .map(cur => generateQuery(cur, valueType, curName, argumentsDict, duplicateArgCounts,
+              crossReferenceKeyList, curDepth + 2).queryStr)
+            .filter(cur => cur)
+            .join('\n');
+          queryStr += `${fragIndent}... on ${valueTypeName} {\n${unionChildQuery}\n${fragIndent}}\n`;
+        }
+        queryStr += `${indent}}`;
+      }
+    }
+    return { queryStr, argumentsDict };
+  } catch (error) {
+
   }
-  return { queryStr, argumentsDict };
 };
 
 /**
@@ -154,10 +158,10 @@ const generateFile = (obj, description) => {
   let indexJs = 'const fs = require(\'fs\');\nconst path = require(\'path\');\n\n';
   let outputFolderName;
   switch (description) {
-    case 'Mutation':
+    case 'RootMutation':
       outputFolderName = 'mutations';
       break;
-    case 'Query':
+    case 'RootQuery':
       outputFolderName = 'queries';
       break;
     case 'Subscription':
@@ -177,11 +181,13 @@ const generateFile = (obj, description) => {
     /* Only process non-deprecated queries/mutations: */
     if (includeDeprecatedFields || !field.isDeprecated) {
       const queryResult = generateQuery(type, description);
-      const varsToTypesStr = getVarsToTypesStr(queryResult.argumentsDict);
-      let query = queryResult.queryStr;
-      query = `${description.toLowerCase()} ${type}${varsToTypesStr ? `(${varsToTypesStr})` : ''}{\n${query}\n}`;
-      fs.writeFileSync(path.join(writeFolder, `./${type}.gql`), query);
-      indexJs += `module.exports.${type} = fs.readFileSync(path.join(__dirname, '${type}.gql'), 'utf8');\n`;
+      if (queryResult) {
+        const varsToTypesStr = getVarsToTypesStr(queryResult.argumentsDict);
+        let query = queryResult.queryStr;
+        query = `${description.toLowerCase().replace("root", "")} ${type}${varsToTypesStr ? `(${varsToTypesStr})` : ''}{\n${query}\n}`;
+        fs.writeFileSync(path.join(writeFolder, `./${type}.gql`), query);
+        indexJs += `module.exports.${type} = fs.readFileSync(path.join(__dirname, '${type}.gql'), 'utf8');\n`;
+      }
     }
   });
   fs.writeFileSync(path.join(writeFolder, 'index.js'), indexJs);
@@ -189,13 +195,13 @@ const generateFile = (obj, description) => {
 };
 
 if (gqlSchema.getMutationType()) {
-  generateFile(gqlSchema.getMutationType().getFields(), 'Mutation');
+  generateFile(gqlSchema.getMutationType().getFields(), 'RootMutation');
 } else {
   console.log('[gqlg warning]:', 'No mutation type found in your schema');
 }
 
 if (gqlSchema.getQueryType()) {
-  generateFile(gqlSchema.getQueryType().getFields(), 'Query');
+  generateFile(gqlSchema.getQueryType().getFields(), 'RootQuery');
 } else {
   console.log('[gqlg warning]:', 'No query type found in your schema');
 }
