@@ -107,7 +107,13 @@ const generateQuery = (
           return includeDeprecatedFields || !fieldSchema.isDeprecated;
         })
         .map(cur => generateQuery(cur, curType, curName, argumentsDict, duplicateArgCounts,
-          crossReferenceKeyList, curDepth + 1).queryStr)
+          crossReferenceKeyList, curDepth + 1))
+        .map((query) => {
+          if (query) {
+            return query.queryStr;
+          }
+          return '';
+        })
         .filter(cur => cur)
         .join('\n');
     }
@@ -146,9 +152,7 @@ const generateQuery = (
       }
     }
     return { queryStr, argumentsDict };
-  } catch (error) {
-    console.log(error);
-  }
+  } catch (error) { }
 };
 
 /**
