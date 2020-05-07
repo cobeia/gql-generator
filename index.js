@@ -12,8 +12,10 @@ program
   .option('-C, --includeDeprecatedFields [value]', 'Flag to include deprecated fields (The default is to exclude)')
   .parse(process.argv);
 
-const { schemaFilePath, destDirPath, depthLimit = 100, includeDeprecatedFields = false } = program;
-const typeDef = fs.readFileSync(schemaFilePath, "utf-8");
+const {
+  schemaFilePath, destDirPath, depthLimit = 100, includeDeprecatedFields = false,
+} = program;
+const typeDef = fs.readFileSync(schemaFilePath, 'utf-8');
 const source = new Source(typeDef);
 const gqlSchema = buildSchema(source);
 
@@ -99,7 +101,7 @@ const generateQuery = (
       crossReferenceKeyList.push(crossReferenceKey);
       const childKeys = Object.keys(curType.getFields());
       childQuery = childKeys
-        .filter(fieldName => {
+        .filter((fieldName) => {
           /* Exclude deprecated fields */
           const fieldSchema = gqlSchema.getType(curType).getFields()[fieldName];
           return includeDeprecatedFields || !fieldSchema.isDeprecated;
@@ -145,7 +147,7 @@ const generateQuery = (
     }
     return { queryStr, argumentsDict };
   } catch (error) {
-
+    console.log(error);
   }
 };
 
@@ -174,7 +176,7 @@ const generateFile = (obj, description) => {
   try {
     fs.mkdirSync(writeFolder);
   } catch (err) {
-    if (err.code !== 'EEXIST') throw err
+    if (err.code !== 'EEXIST') throw err;
   }
   Object.keys(obj).forEach((type) => {
     const field = gqlSchema.getType(description).getFields()[type];
@@ -184,7 +186,7 @@ const generateFile = (obj, description) => {
       if (queryResult) {
         const varsToTypesStr = getVarsToTypesStr(queryResult.argumentsDict);
         let query = queryResult.queryStr;
-        query = `${description.toLowerCase().replace("root", "")} ${type}${varsToTypesStr ? `(${varsToTypesStr})` : ''}{\n${query}\n}`;
+        query = `${description.toLowerCase().replace('root', '')} ${type}${varsToTypesStr ? `(${varsToTypesStr})` : ''}{\n${query}\n}`;
         fs.writeFileSync(path.join(writeFolder, `./${type}.gql`), query);
         indexJs += `module.exports.${type} = fs.readFileSync(path.join(__dirname, '${type}.gql'), 'utf8');\n`;
       }
